@@ -1,18 +1,29 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Header } from "@/components/Header";
 import { FileUpload } from "@/components/FileUpload";
 import { SummaryOptions } from "@/components/SummaryOptions";
 import { SummaryResult } from "@/components/SummaryResult";
+import { AdminLoginModal } from "@/components/AdminLoginModal";
 import {
   SummaryLength,
   UploadedFileState,
   ExtractPdfResponse,
   GeminiSummaryData,
   SummarizeResponse,
+  UsageInfo,
 } from "@/types";
-import { Sparkles, RefreshCw, Info, Check, Loader2, AlertCircle } from "lucide-react";
+import {
+  Sparkles,
+  RefreshCw,
+  Info,
+  Check,
+  Loader2,
+  AlertCircle,
+  ShieldCheck,
+  Gauge,
+} from "lucide-react";
 
 export default function Home() {
   const [uploadedFile, setUploadedFile] = useState<UploadedFileState>({
@@ -31,6 +42,37 @@ export default function Home() {
   } | null>(null);
   const [summaryData, setSummaryData] = useState<GeminiSummaryData | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Admin ve Rate Limit Durumları
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+
+  // İlk yüklemede admin oturumunu kontrol et
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const res = await fetch("/api/admin/session");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            setIsAdmin(true);
+          }
+        }
+      } catch {
+        // Oturum kontrol hatası sessizce yoksayılır
+      }
+    };
+    checkSession();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/admin/logout", { method: "POST" });
+    } finally {
+      setIsAdmin(false);
+    }
+  };
 
   // PDF metnini sunucudan (API route) çıkaran fonksiyon
   const extractPdfText = async (file: File) => {
@@ -131,6 +173,13 @@ export default function Home() {
         return;
       }
 
+      // Başarılı yanıtta kullanım kotası ve admin durumunu güncelle
+      if (result.admin) {
+        setIsAdmin(true);
+      } else if (result.usage) {
+        setUsage(result.usage);
+      }
+
       setSummaryData(result.data);
     } catch (err) {
       const errorMsg =
@@ -153,7 +202,18 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col font-sans text-zinc-900 selection:bg-indigo-500 selection:text-white">
       {/* Üst Menü / Header */}
-      <Header />
+      <Header
+        isAdmin={isAdmin}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
+      />
+
+      {/* Admin Giriş Modalı */}
+      <AdminLoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        onLoginSuccess={() => setIsAdmin(true)}
+      />
 
       {/* Ana İçerik */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
@@ -205,6 +265,28 @@ export default function Home() {
                 selectedLength={selectedLength}
                 onChange={setSelectedLength}
               />
+
+              {/* Kota ve Kullanım Durum Bildirimi */}
+              {isAdmin ? (
+                <div className="flex items-center gap-2.5 p-3 text-xs text-indigo-800 bg-indigo-50/90 border border-indigo-200/80 rounded-2xl shadow-2xs">
+                  <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span className="font-medium">
+                    Yönetici modu — kullanım limiti uygulanmıyor.
+                  </span>
+                </div>
+              ) : usage !== null ? (
+                <div className="flex items-center justify-between p-3 text-xs text-zinc-700 bg-zinc-50 border border-zinc-200/80 rounded-2xl">
+                  <div className="flex items-center gap-2 font-medium">
+                    <Gauge className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span>
+                      Bugün <strong className="text-indigo-600 font-semibold">{usage.remaining}</strong> ücretsiz özetleme hakkınız kaldı.
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-zinc-400 font-semibold">
+                    {usage.dailyLimit - usage.remaining} / {usage.dailyLimit}
+                  </span>
+                </div>
+              ) : null}
 
               {/* Hata Bildirimi */}
               {errorMessage && (

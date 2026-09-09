@@ -29,6 +29,11 @@ export interface GeminiSummaryData {
   actionItems: string[];
 }
 
+export interface UsageInfo {
+  dailyLimit: number;
+  remaining: number;
+}
+
 export interface SummarizeRequest {
   text: string;
   summaryLevel: SummaryLength;
@@ -38,4 +43,16 @@ export interface SummarizeResponse {
   success: boolean;
   data?: GeminiSummaryData;
   error?: string;
+  code?: string;
+  usage?: UsageInfo;
+  admin?: boolean;
+}
+
+export interface AdminSessionStatus {
+  authenticated: boolean;
+}
+
+export interface AdminLoginRequest {
+  username?: string;
+  password?: string;
 }
