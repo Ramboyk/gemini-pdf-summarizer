@@ -10,17 +10,31 @@ interface SessionPayload {
 }
 
 /**
- * Zamanlama saldırılarını (timing attacks) önlemek için sabit zamanlı dize karşılaştırması
+ * Ortam değişkeni veya kullanıcı girişindeki gereksiz boşlukları,
+ * tırnak işaretlerini ("...") ve satır sonu (\r) karakterlerini temizler.
  */
-function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    // Farklı uzunlukta olsa bile zaman sızıntısını önlemek için sahte karşılaştırma yap
-    crypto.timingSafeEqual(bufA, bufA);
-    return false;
+export function cleanValue(val?: string | null): string {
+  if (!val) return "";
+  let str = String(val).trim();
+  // Varsa başındaki ve sonundaki çift/tek tırnakları temizle
+  if (
+    (str.startsWith('"') && str.endsWith('"')) ||
+    (str.startsWith("'") && str.endsWith("'"))
+  ) {
+    str = str.slice(1, -1).trim();
   }
-  return crypto.timingSafeEqual(bufA, bufB);
+  return str.replace(/\r/g, "");
+}
+
+/**
+ * Zamanlama saldırılarını (timing attacks) önlemek için sabit zamanlı güvenli karşılaştırma.
+ * Her iki dize SHA-256 ile özetlendiğinden (digest) arabellekler daima eşit uzunluktadır (32 bayt).
+ * Böylece farklı uzunluktaki dizelerde uzunluk sızıntısı veya hata oluşmaz.
+ */
+export function safeCompare(a: string, b: string): boolean {
+  const hashA = crypto.createHash("sha256").update(a, "utf8").digest();
+  const hashB = crypto.createHash("sha256").update(b, "utf8").digest();
+  return crypto.timingSafeEqual(hashA, hashB);
 }
 
 /**
@@ -40,15 +54,31 @@ export function verifyAdminCredentials(
   username?: string,
   password?: string
 ): boolean {
-  const envUsername = process.env.ADMIN_USERNAME;
-  const envPassword = process.env.ADMIN_PASSWORD;
+  const rawEnvUser = process.env.ADMIN_USERNAME;
+  const rawEnvPass = process.env.ADMIN_PASSWORD;
 
-  if (!envUsername || !envPassword || !username || !password) {
+  const envUser = cleanValue(rawEnvUser);
+  const envPass = cleanValue(rawEnvPass);
+
+  const inputUser = cleanValue(username);
+  const inputPass = cleanValue(password);
+
+  // Güvenli debug logları (Değerler ASLA loglanmaz, yalnızca durum ve uzunluk eşleşmesi kontrol edilir)
+  console.log("[Admin Auth Debug]", {
+    adminUsernameConfigured: Boolean(envUser),
+    adminPasswordConfigured: Boolean(envPass),
+    usernameLengthMatch: inputUser.length === envUser.length,
+    passwordLengthMatch: inputPass.length === envPass.length,
+  });
+
+  if (!envUser || !envPass || !inputUser || !inputPass) {
     return false;
   }
 
-  const isUserMatch = safeCompare(username, envUsername);
-  const isPassMatch = safeCompare(password, envPassword);
+  // Kullanıcı adı karşılaştırması (büyük/küçük harf toleranslı ve güvenli)
+  const isUserMatch = safeCompare(inputUser.toLowerCase(), envUser.toLowerCase());
+  // Şifre karşılaştırması (birebir eşleşme ve güvenli)
+  const isPassMatch = safeCompare(inputPass, envPass);
 
   return isUserMatch && isPassMatch;
 }
@@ -57,12 +87,15 @@ export function verifyAdminCredentials(
  * İmzalı admin session token'ı üretir
  */
 export function createAdminSessionToken(): string {
-  const secret = process.env.ADMIN_SESSION_SECRET;
+  const secret =
+    cleanValue(process.env.ADMIN_SESSION_SECRET) ||
+    cleanValue(process.env.ADMIN_PASSWORD);
+
   if (!secret) {
-    throw new Error("ADMIN_SESSION_SECRET ortam değişkeni tanımlanmamış.");
+    throw new Error("ADMIN_SESSION_SECRET veya ADMIN_PASSWORD tanımlanmamış.");
   }
 
-  const username = process.env.ADMIN_USERNAME || "admin";
+  const username = cleanValue(process.env.ADMIN_USERNAME) || "admin";
   const payload: SessionPayload = {
     u: username,
     exp: Date.now() + ADMIN_SESSION_DURATION_SECONDS * 1000,
@@ -81,7 +114,10 @@ export function createAdminSessionToken(): string {
 export function verifyAdminSessionToken(token?: string | null): boolean {
   if (!token) return false;
 
-  const secret = process.env.ADMIN_SESSION_SECRET;
+  const secret =
+    cleanValue(process.env.ADMIN_SESSION_SECRET) ||
+    cleanValue(process.env.ADMIN_PASSWORD);
+
   if (!secret) return false;
 
   const parts = token.split(".");
@@ -104,8 +140,8 @@ export function verifyAdminSessionToken(token?: string | null): boolean {
     }
 
     // Kullanıcı adı kontrolü
-    const envUsername = process.env.ADMIN_USERNAME || "admin";
-    if (payload.u !== envUsername) {
+    const envUsername = cleanValue(process.env.ADMIN_USERNAME) || "admin";
+    if (payload.u.toLowerCase() !== envUsername.toLowerCase()) {
       return false;
     }
 
@@ -145,7 +181,7 @@ export async function isAdminSession(request?: Request): Promise<boolean> {
       return true;
     }
   } catch {
-    // Next.js context dışında (örn. harici test ortamı) sessizce yoksay
+    // Next.js context dışında sessizce yoksay
   }
 
   return false;
