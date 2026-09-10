@@ -6,8 +6,15 @@
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.0-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini-API-4285F4?style=flat-square&logo=google&logoColor=white)](https://aistudio.google.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald?style=flat-square)](./LICENSE)
+[![Status](https://img.shields.io/badge/Status-v1.0_MVP-success?style=flat-square)](#)
 
 Gemini PDF Summarizer, PDF belgelerini analiz ederek kısa, orta veya detaylı yapılandırılmış özetler üreten yapay zekâ destekli bir web uygulamasıdır. Next.js, TypeScript ve Google Gemini API ile geliştirilmiştir.
+
+---
+
+## Canlı Demo
+
+[Uygulamayı Canlı Görüntüle](https://gemini-pdf-summarizer-rho.vercel.app/)
 
 ---
 
@@ -31,21 +38,23 @@ Uygulama, yüklenen PDF belgesini analiz ederek şu yapılandırılmış bölüm
 - **Structured Gemini Output:** Google Gemini API üzerinden garantili JSON şeması ile tutarlı veri yapısı.
 - **Long-Document Chunking:** 12.000 karakterden uzun belgelerde paragraf duyarlı map-reduce sentezleme.
 - **Resilient Retry Mekanizması:** 503, 429 ve geçici network kesintilerinde otomatik exponential backoff (2s, 4s, 8s).
-- **Güvenli Mimari:** API anahtarı tamamen sunucu tarafında (`process.env`) tutulur; istemciye veya tarayıcıya sızdırılmaz.
+- **Kota ve Rate Limiting Koruması:** Upstash Redis ile IP ve global günlük kullanım kotaları (kamuya açık demo koruması).
+- **Yönetici Test Modu:** Proje sahibinin kullanım limitlerinden etkilenmeden uygulamayı test etmesini sağlayan güvenli admin oturumu.
+- **Güvenli Mimari:** API anahtarları tamamen sunucu tarafında (`process.env`) tutulur; istemciye veya tarayıcıya sızdırılmaz.
 - **Tek Tıkla Kopyalama:** Üretilen raporu Markdown formatında panoya aktarma.
 - **Belge Analiz İstatistikleri:** Sayfa sayısı, karakter sayısı, seçilen mod ve kelime adedi gösterimi.
-- **Responsive Türkçe UI:** Masaüstü ve mobil cihazlarla tam uyumlu, modern ve sade kullanıcı arayüzü.
+- **Responsive Türkçe UI:** Masaüstü ve mobil cihazlarla tam uyumlu, modern kullanıcı arayüzü.
 
 ---
 
 ## 📐 Architecture
 
 ```text
-PDF Upload (Client)
+PDF Upload & Summary Request (Client)
        ↓
-Server-Side Text Extraction (API Route)
+Server-Side Rate Limit & Admin Verification (Upstash Redis)
        ↓
-unpdf (WASM / Node.js Runtime)
+Server-Side Text Extraction (unpdf / WASM)
        ↓
 Validation & Normalization
        ↓
@@ -55,7 +64,7 @@ Gemini API (withRetry & responseSchema)
        ↓
 Structured JSON Output
        ↓
-Summary UI (Markdown Copy & Statistics)
+Summary UI (Markdown Copy, Statistics & Usage Counter)
 ```
 
 ### Uzun Belgelerde Map-Reduce Sentezleme
@@ -73,6 +82,7 @@ Summary UI (Markdown Copy & Statistics)
 | **[TypeScript](https://www.typescriptlang.org/)** | `^5` | Statik tip denetimi ve güvenli veri modelleri |
 | **[Tailwind CSS](https://tailwindcss.com/)** | `^4` | Modern CSS stillendirme |
 | **[@google/genai](https://www.npmjs.com/package/@google/genai)** | `^2.21.0` | Resmi Google Gemini SDK |
+| **[@upstash/redis](https://upstash.com/)** | `^1.38.4` | Rate limiting ve kota yönetimi için serverless Redis |
 | **[unpdf](https://unjs.io/packages/unpdf)** | `^1.8.1` | Native canvas bağımlılığı olmayan modern PDF ayrıştırıcı |
 | **[lucide-react](https://lucide.dev/)** | `^1.43.0` | Minimalist ikon seti |
 
@@ -96,13 +106,24 @@ npm install
 cp .env.example .env.local
 ```
 
-`.env.local` dosyasını açıp kendi Google Gemini API anahtarınızı girin:
+`.env.local` dosyasını açıp gerekli ortam değişkenlerini girin:
 ```env
 GEMINI_API_KEY=your_api_key_here
 GEMINI_MODEL=gemini-3.6-flash
+
+UPSTASH_REDIS_REST_URL=your_upstash_redis_rest_url
+UPSTASH_REDIS_REST_TOKEN=your_upstash_redis_rest_token
+
+IP_DAILY_LIMIT=3
+GLOBAL_DAILY_LIMIT=20
+
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change_me
+ADMIN_SESSION_SECRET=replace_with_a_long_random_secret
 ```
 
-> **API Key Temini:** [Google AI Studio](https://aistudio.google.com/) üzerinden ücretsiz API anahtarı oluşturabilirsiniz.
+> **API Key Temini:** [Google AI Studio](https://aistudio.google.com/) üzerinden ücretsiz Gemini API anahtarı oluşturabilirsiniz.
+> **Redis Temini:** [Upstash](https://upstash.com/) üzerinden ücretsiz serverless Redis veritabanı açabilirsiniz.
 
 ### 4. Geliştirme Sunucusunu Başlatın
 ```bash
@@ -125,6 +146,13 @@ npm start
 | :--- | :--- | :--- |
 | `GEMINI_API_KEY` | Google Gemini API anahtarı (**Zorunlu**, sunucu tarafı) | - |
 | `GEMINI_MODEL` | Kullanılacak Gemini modeli | `gemini-3.6-flash` |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST URL endpoint'i | - |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST erişim belirteci (token) | - |
+| `IP_DAILY_LIMIT` | IP başına günlük başarılı özetleme limiti | `3` |
+| `GLOBAL_DAILY_LIMIT` | Uygulama geneli günlük başarılı özetleme limiti | `20` |
+| `ADMIN_USERNAME` | Yönetici modu giriş kullanıcı adı | `admin` |
+| `ADMIN_PASSWORD` | Yönetici modu giriş şifresi | `change_me` |
+| `ADMIN_SESSION_SECRET` | Admin oturumu imzalama anahtarı (HMAC SHA-256) | - |
 
 ---
 
@@ -146,7 +174,7 @@ PDF dosyasını alır, boyutunu ve içeriğini doğrular, sunucuda metne dönü�
   ```
 
 ### 2. `POST /api/summarize`
-Çıkarılan metni ve istenen özet derinliğini alarak Gemini API ile yapılandırılmış JSON özet üretir.
+Çıkarılan metni ve istenen özet derinliğini alarak Gemini API ile yapılandırılmış JSON özet üretir. Rate limit kontrolleri bu uç noktada işletilir.
 - **Content-Type:** `application/json`
 - **Body:**
   ```json
@@ -155,20 +183,37 @@ PDF dosyasını alır, boyutunu ve içeriğini doğrular, sunucuda metne dönü�
     "summaryLevel": "short" | "medium" | "detailed"
   }
   ```
-- **Gemini Structured Output:**
+- **Response:**
   ```json
   {
-    "summary": "Belgenin ana konusunu ve kilit mesajını aktaran özet.",
-    "keyPoints": [
-      "Önemli bulgu veya çıkarım 1",
-      "Önemli bulgu veya çıkarım 2"
-    ],
-    "keywords": ["yapay-zeka", "nextjs", "dokuman-analizi"],
-    "actionItems": [
-      "Belirtilen aksiyon adımı 1"
-    ]
+    "success": true,
+    "data": {
+      "summary": "Belgenin ana konusunu ve kilit mesajını aktaran özet.",
+      "keyPoints": [
+        "Önemli bulgu veya çıkarım 1",
+        "Önemli bulgu veya çıkarım 2"
+      ],
+      "keywords": ["yapay-zeka", "nextjs", "dokuman-analizi"],
+      "actionItems": [
+        "Belirtilen aksiyon adımı 1"
+      ]
+    },
+    "usage": {
+      "dailyLimit": 3,
+      "remaining": 2
+    }
   }
   ```
+
+### 3. `POST /api/admin/login`
+Yönetici kimlik bilgilerini doğrular ve güvenli, HTTP-only bir oturum çerezi oluşturur.
+- **Body:** `{ "username": "...", "password": "..." }`
+
+### 4. `POST /api/admin/logout`
+Mevcut yönetici oturumunu sonlandırır ve çerezi temizler.
+
+### 5. `GET /api/admin/session`
+Mevcut istekteki yönetici oturumunun geçerliliğini doğrular.
 
 ---
 
@@ -184,11 +229,27 @@ PDF dosyasını alır, boyutunu ve içeriğini doğrular, sunucuda metne dönü�
 
 ---
 
+## ⏱️ Rate Limiting
+
+Uygulamanın kamuya açık public demosunu ve API kaynaklarını korumak amacıyla Upstash Redis üzerinden günlük kotalar uygulanır:
+
+- **Normal Kullanıcılar:**
+  - **IP Başına Günlük Kota:** 3 başarılı özet
+  - **Uygulama Geneli Günlük Kota:** 20 başarılı özet
+  - Kotalar yalnızca başarılı özetleme işlemlerinde eksilir; başarısız istekler kullanıcının hakkını tüketmez.
+- **Admin Modu:**
+  - Doğrulanmış yönetici oturumuna sahip isteklerde rate limit uygulanmaz.
+  - Yönetici modu, proje sahibinin demo kullanım limitlerinden etkilenmeden uygulamayı test etmesini sağlar.
+
+---
+
 ## 🛡️ Security
 
-- **Server-Side API Key:** `GEMINI_API_KEY` yalnızca sunucu tarafında Route Handler içinde okunur. İstemci bundle'ına dahil edilmez.
-- **Log Hijyeni:** API anahtarları olası hata mesajlarında ve loglarda filtrelenerek gizlenir (`sanitizeErrorMessage`).
-- **Git Güvenliği:** `.env.local` dosyası `.gitignore` ile korunmaktadır. Depo içinde hiçbir hassas anahtar barındırılmaz.
+- **Server-Side API Key & Secrets:** `GEMINI_API_KEY`, Redis tokenları ve admin kimlik bilgileri yalnızca sunucu tarafında okunur; istemci tarafına asla sızdırılmaz.
+- **Güvenli Kimlik Doğrulama:** Yönetici doğrulamalarında zamanlama saldırılarına (timing attacks) karşı `crypto.timingSafeEqual` kullanılır. Oturumlar HMAC SHA-256 ile imzalanır ve `httpOnly`, `sameSite=lax`, `secure` çerezlerde saklanır.
+- **IP Gizliliği:** Rate limit için istemci IP adresleri açık metin olarak değil, SHA-256 ile tek yönlü hashlenerek Redis'te tutulur.
+- **Log Hijyeni:** Hata mesajlarında ve sunucu loglarında hassas anahtarlar filtrelenerek maskelenir (`sanitizeErrorMessage`).
+- **Git Güvenliği:** `.env.local` dosyası `.gitignore` ile korunmaktadır. Depoda hiçbir gerçek secret veya credential yer almaz.
 
 ---
 
